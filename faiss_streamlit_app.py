@@ -9,7 +9,6 @@ import logging
 from datetime import datetime
 import faiss
 import streamlit as st
-import sys
 
 # Disable tokenizers parallelism
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -22,12 +21,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger()
 
-# Workaround for Streamlit/PyTorch conflict
-# Avoid introspection of torch.classes by setting a dummy sys.modules entry
-if 'torch.classes' not in sys.modules:
-    sys.modules['torch.classes'] = type('DummyModule', (), {'__file__': None, '__path__': None})
-
-# Load pre-trained LaBSE model and tokenizer
+# Load pre-trained LaBSE model and tokenizer with caching
 @st.cache_resource
 def load_model():
     model_name = "setu4993/LaBSE"
@@ -35,8 +29,7 @@ def load_model():
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModel.from_pretrained(model_name)
     logger.info("Model and tokenizer loaded successfully")
-    # Disable OpenMP parallelism in FAISS
-    faiss.omp_set_num_threads(1)
+    faiss.omp_set_num_threads(1)  # Disable FAISS OpenMP parallelism
     logger.info("FAISS OpenMP parallelism set to 1 thread")
     return model, tokenizer
 
@@ -191,7 +184,7 @@ def main():
 
     # Sidebar for configuration
     st.sidebar.header("Configuration")
-    existing_docs_dir = st.sidebar.text_input("Existing Documents Directory", value="./Documents/")
+    existing_docs_dir = st.sidebar.text_input("Existing Documents Directory", value="./test_docs/")
     uploaded_file = st.sidebar.file_uploader("Upload New Document (DOCX or PDF)", type=["docx", "pdf"])
 
     if st.sidebar.button("Check Similarity"):
