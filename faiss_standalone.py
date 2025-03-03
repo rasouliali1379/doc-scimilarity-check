@@ -76,6 +76,19 @@ def compute_embeddings(sentences, model, tokenizer, batch_size=32):
     logger.info(f"Embeddings computed, shape: {embeddings.shape}")
     return embeddings
 
+# Ensure vectors are properly normalized
+def normalize_vectors(vectors):
+    faiss.normalize_L2(vectors)
+    # Verify normalization was successful
+    norms = np.linalg.norm(vectors, axis=1)
+    logger.info(f"Vector normalization check - Min norm: {norms.min():.6f}, Max norm: {norms.max():.6f}, Mean norm: {norms.mean():.6f}")
+    # Fix any vectors that aren't perfectly normalized due to numerical precision
+    for i in range(len(vectors)):
+        norm = np.linalg.norm(vectors[i])
+        if abs(norm - 1.0) > 1e-6:
+            vectors[i] = vectors[i] / norm
+    return vectors
+
 # Build FAISS index
 def build_faiss_index(existing_docs_dir, model, tokenizer, index_path="faiss_index.bin"):
     logger.info(f"Building FAISS index from documents in {existing_docs_dir}")
@@ -99,7 +112,7 @@ def build_faiss_index(existing_docs_dir, model, tokenizer, index_path="faiss_ind
         raise ValueError("No sentences found in existing documents")
     
     embeddings = compute_embeddings(all_sentences, model, tokenizer)
-    faiss.normalize_L2(embeddings)
+    embeddings = normalize_vectors(embeddings)
     
     d = embeddings.shape[1]
     index = faiss.IndexFlatIP(d)
@@ -136,7 +149,7 @@ def check_similarity_with_faiss(existing_docs_dir, new_doc_path, model, tokenize
     logger.info(f"New document tokenized into {len(new_sentences)} sentences")
     
     new_embeddings = compute_embeddings(new_sentences, model, tokenizer)
-    faiss.normalize_L2(new_embeddings)
+    new_embeddings = normalize_vectors(new_embeddings)
     
     k = 5
     logger.info(f"Querying FAISS index with k={k}")
@@ -145,7 +158,13 @@ def check_similarity_with_faiss(existing_docs_dir, new_doc_path, model, tokenize
     doc_similarities = {}
     for i, (dist, idx) in enumerate(zip(distances, indices)):
         for d, j in zip(dist, idx):
-            similarity = d
+            # Ensure similarity is within [0, 1] range
+            similarity = min(1.0, max(0.0, d))
+            
+            # Log if we had to clip the value
+            if d > 1.0:
+                logger.warning(f"Clipped similarity value from {d:.6f} to 1.0")
+            
             for doc_name, start_idx, end_idx in doc_mapping:
                 if int(start_idx) <= int(j) < int(end_idx):
                     if doc_name not in doc_similarities:
