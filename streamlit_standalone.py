@@ -30,7 +30,7 @@ def main():
                     
                     # Run similarity check in a subprocess
                     result = subprocess.run(
-                        ["python", "faiss_standalone.py", existing_docs_dir, "--new_doc_path", tmp_file_path],
+                        ["python3", "faiss_standalone.py", existing_docs_dir, "--new_doc_path", tmp_file_path],
                         capture_output=True,
                         text=True
                     )
