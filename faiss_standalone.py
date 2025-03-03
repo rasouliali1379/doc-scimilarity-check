@@ -8,6 +8,9 @@ from docx import Document
 import PyPDF2
 import logging
 from datetime import datetime
+import platform
+import subprocess
+import tempfile
 
 # Disable tokenizers parallelism
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -28,6 +31,62 @@ model = AutoModel.from_pretrained(model_name)
 logger.info("Model and tokenizer loaded successfully")
 faiss.omp_set_num_threads(1)
 logger.info("FAISS OpenMP parallelism set to 1 thread")
+
+# Function to extract text from DOC files using catdoc
+def extract_text_from_doc(file):
+    logger.info(f"Extracting text from DOC")
+    
+    # Write the file content to a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.doc') as temp_file:
+        temp_file_path = temp_file.name
+        temp_file.write(file.read())
+    file.seek(0)  # Reset file pointer
+    
+    text = ""
+    try:
+        # Use catdoc to extract text
+        if platform.system() in ["Darwin", "Linux"]:  # macOS or Ubuntu
+            result = subprocess.run(['catdoc', temp_file_path], capture_output=True, text=True)
+            if result.returncode == 0:
+                text = result.stdout
+                logger.info(f"Text extracted from DOC using catdoc, length: {len(text)} characters")
+            else:
+                logger.warning(f"catdoc failed with error: {result.stderr}")
+                text = extract_text_with_antiword(temp_file_path)
+        else:
+            logger.error("Unsupported OS for .doc extraction")
+            text = ""
+    except Exception as e:
+        logger.error(f"Error extracting text from .doc: {str(e)}")
+        # Try antiword as fallback
+        text = extract_text_with_antiword(temp_file_path)
+    
+    # Clean up the temporary file
+    try:
+        os.unlink(temp_file_path)
+    except Exception as e:
+        logger.warning(f"Failed to delete temporary file: {str(e)}")
+    
+    return text
+
+# Function to extract text with antiword (fallback method)
+def extract_text_with_antiword(file_path):
+    logger.info("Attempting to extract text with antiword")
+    try:
+        if platform.system() in ["Darwin", "Linux"]:  # macOS or Ubuntu
+            result = subprocess.run(['antiword', file_path], capture_output=True, text=True)
+            if result.returncode == 0:
+                text = result.stdout
+                logger.info(f"Text extracted from DOC using antiword, length: {len(text)} characters")
+                return text
+            else:
+                logger.warning(f"antiword failed with error: {result.stderr}")
+                return ""
+        else:
+            return ""
+    except Exception as e:
+        logger.warning(f"Failed to extract text with antiword: {str(e)}")
+        return ""
 
 # Function to extract text from DOCX files
 def extract_text_from_docx(file):
@@ -53,13 +112,15 @@ def extract_text_from_pdf(file):
 
 # Function to extract text based on file type
 def extract_text(file, file_name):
-    if file_name.endswith('.docx'):
+    if file_name.lower().endswith('.docx'):
         return extract_text_from_docx(file)
-    elif file_name.endswith('.pdf'):
+    elif file_name.lower().endswith('.pdf'):
         return extract_text_from_pdf(file)
+    elif file_name.lower().endswith('.doc'):
+        return extract_text_from_doc(file)
     else:
         logger.error(f"Unsupported file format: {file_name}")
-        raise ValueError("Unsupported file format. Use .docx or .pdf")
+        raise ValueError("Unsupported file format. Use .doc, .docx, or .pdf")
 
 # Compute embeddings
 def compute_embeddings(sentences, model, tokenizer, batch_size=32):
@@ -97,7 +158,7 @@ def build_faiss_index(existing_docs_dir, model, tokenizer, index_path="faiss_ind
     
     for file_name in os.listdir(existing_docs_dir):
         file_path = os.path.join(existing_docs_dir, file_name)
-        if not (file_name.endswith('.docx') or file_name.endswith('.pdf')):
+        if not (file_name.lower().endswith('.docx') or file_name.lower().endswith('.pdf') or file_name.lower().endswith('.doc')):
             continue
         with open(file_path, 'rb') as file:
             text = extract_text(file, file_name)
@@ -207,6 +268,32 @@ if __name__ == "__main__":
     parser.add_argument('existing_docs_dir')
     parser.add_argument('--new_doc_path', required=True)
     args = parser.parse_args()
+    
+    # Check for required command-line tools
+    if platform.system() in ["Darwin", "Linux"]:  # macOS or Ubuntu
+        catdoc_available = False
+        antiword_available = False
+        
+        try:
+            subprocess.run(['which', 'catdoc'], check=True, stdout=subprocess.PIPE)
+            catdoc_available = True
+        except subprocess.CalledProcessError:
+            logger.warning("catdoc is not installed")
+            
+        try:
+            subprocess.run(['which', 'antiword'], check=True, stdout=subprocess.PIPE)
+            antiword_available = True
+        except subprocess.CalledProcessError:
+            logger.warning("antiword is not installed")
+            
+        if not (catdoc_available or antiword_available):
+            if platform.system() == "Darwin":  # macOS
+                print("Warning: Neither catdoc nor antiword is installed for .doc file support.")
+                print("To install them on macOS, run: brew install catdoc antiword")
+            else:  # Ubuntu
+                print("Warning: Neither catdoc nor antiword is installed for .doc file support.")
+                print("To install them on Ubuntu, run: sudo apt-get install catdoc antiword")
+    
     results = check_similarity_with_faiss(args.existing_docs_dir, args.new_doc_path, model, tokenizer)
     import json
     print(json.dumps([(file_name, float(avg_sim), float(prop_high_sim)) for file_name, avg_sim, prop_high_sim in results]))
