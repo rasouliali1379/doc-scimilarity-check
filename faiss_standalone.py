@@ -155,8 +155,13 @@ def check_similarity_with_faiss(existing_docs_dir, new_doc_path, model, tokenize
     logger.info(f"Querying FAISS index with k={k}")
     distances, indices = index.search(new_embeddings, k)
     
+    # Track which sentences have high similarity with each document
+    high_sim_sentences = {}
     doc_similarities = {}
+    
     for i, (dist, idx) in enumerate(zip(distances, indices)):
+        sentence_has_high_sim = False  # Track if this sentence has high similarity with any document
+        
         for d, j in zip(dist, idx):
             # Ensure similarity is within [0, 1] range
             similarity = min(1.0, max(0.0, d))
@@ -169,15 +174,29 @@ def check_similarity_with_faiss(existing_docs_dir, new_doc_path, model, tokenize
                 if int(start_idx) <= int(j) < int(end_idx):
                     if doc_name not in doc_similarities:
                         doc_similarities[doc_name] = []
+                        high_sim_sentences[doc_name] = set()
+                    
                     doc_similarities[doc_name].append(similarity)
+                    
+                    # Track sentences with high similarity
+                    if similarity > 0.8:
+                        high_sim_sentences[doc_name].add(i)
+                        sentence_has_high_sim = True
+                    
                     break
     
     results = []
     for doc_name, sim_scores in doc_similarities.items():
         avg_sim = np.mean(sim_scores)
-        prop_high_sim = np.sum(np.array(sim_scores) > 0.8) / len(new_sentences)
+        # Calculate proportion using the count of unique sentences with high similarity
+        high_sim_count = len(high_sim_sentences[doc_name])
+        prop_high_sim = high_sim_count / len(new_sentences)
+        
+        # Ensure proportion is in [0, 1] range
+        prop_high_sim = min(1.0, prop_high_sim)
+        
         results.append((doc_name, avg_sim, prop_high_sim))
-        logger.info(f"{doc_name}: Avg similarity = {avg_sim:.4f}, Prop high similarity = {prop_high_sim:.4f}")
+        logger.info(f"{doc_name}: Avg similarity = {avg_sim:.4f}, High similarity sentences = {high_sim_count}, Prop high similarity = {prop_high_sim:.4f}")
     
     results.sort(key=lambda x: x[1], reverse=True)
     return results
