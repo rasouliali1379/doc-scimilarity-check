@@ -5,24 +5,52 @@ import subprocess
 import json
 import tempfile
 
-# Streamlit GUI
+# Set page configuration for RTL
+st.set_page_config(
+    page_title="سامانه بررسی شباهت اسناد",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# Apply RTL CSS
+st.markdown("""
+<style>
+    .main, .sidebar, .stMarkdown, .stButton, .stTextInput, .stFileUploader, .stHeader, .stExpander {
+        direction: rtl;
+        text-align: right;
+    }
+    .stExpander .streamlit-expanderContent {
+        direction: rtl;
+        text-align: right;
+    }
+    button {
+        float: right;
+    }
+    div[data-testid="stFileUploader"] label {
+        direction: rtl;
+        text-align: right;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Streamlit GUI with Persian labels
 def main():
-    st.title("Document Similarity Checker")
-    st.markdown("Upload a new document and compare it against a directory of existing documents to detect similarities using FAISS and LaBSE embeddings.")
+    st.title("سامانه بررسی شباهت اسناد")
+    st.markdown("یک سند جدید را بارگذاری کنید و آن را با اسناد موجود در پوشه مقایسه کنید تا شباهت‌ها با استفاده از FAISS و LaBSE تشخیص داده شوند.")
 
     # Sidebar for configuration
-    st.sidebar.header("Configuration")
-    existing_docs_dir = st.sidebar.text_input("Existing Documents Directory", value="./Documents/")
-    uploaded_file = st.sidebar.file_uploader("Upload New Document (DOCX or PDF)", type=["docx", "pdf"])
+    st.sidebar.header("تنظیمات")
+    existing_docs_dir = st.sidebar.text_input("مسیر پوشه اسناد موجود", value="./Documents/")
+    uploaded_file = st.sidebar.file_uploader("بارگذاری سند جدید (DOCX یا PDF)", type=["docx", "pdf"])
 
-    if st.sidebar.button("Check Similarity"):
+    if st.sidebar.button("بررسی شباهت"):
         if not os.path.isdir(existing_docs_dir):
-            st.error("Please provide a valid directory containing existing documents.")
+            st.error("لطفاً یک مسیر معتبر برای پوشه اسناد موجود وارد کنید.")
         elif not uploaded_file:
-            st.error("Please upload a new document to compare.")
+            st.error("لطفاً یک سند جدید برای مقایسه بارگذاری کنید.")
         else:
             try:
-                with st.spinner("Processing..."):
+                with st.spinner("در حال پردازش..."):
                     # Save uploaded file temporarily
                     with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
                         tmp_file.write(uploaded_file.read())
@@ -30,7 +58,7 @@ def main():
                     
                     # Run similarity check in a subprocess
                     result = subprocess.run(
-                        ["python3", "faiss_standalone.py", existing_docs_dir, "--new_doc_path", tmp_file_path],
+                        [".venv/bin/python", "faiss_standalone.py", existing_docs_dir, "--new_doc_path", tmp_file_path],
                         capture_output=True,
                         text=True
                     )
@@ -39,7 +67,7 @@ def main():
                     os.unlink(tmp_file_path)
                     
                     if result.returncode != 0:
-                        st.error(f"Error during processing: {result.stderr}")
+                        st.error(f"خطا در پردازش: {result.stderr}")
                         return
                     
                     # Parse results (assuming standalone script prints JSON)
@@ -55,15 +83,15 @@ def main():
                             prop_high_sim = float(lines[i+2].replace("  Proportion of Highly Similar Sentences (threshold > 0.8): ", ""))
                             results.append((file_name, avg_sim, prop_high_sim))
                 
-                st.success("Similarity check completed!")
-                st.header("Results (Sorted by Average Similarity)")
+                st.success("بررسی شباهت با موفقیت انجام شد!")
+                st.header("نتایج (مرتب شده بر اساس میانگین شباهت)")
                 
                 for file_name, avg_sim, prop_high_sim in results:
-                    with st.expander(f"Existing Document: {file_name}"):
-                        st.write(f"**Average Similarity**: {avg_sim:.4f}")
-                        st.write(f"**Proportion of Highly Similar Sentences (threshold > 0.8)**: {prop_high_sim:.4f}")
+                    with st.expander(f"سند موجود: {file_name}"):
+                        st.write(f"**میانگین شباهت**: {avg_sim:.4f}")
+                        st.write(f"**نسبت جملات با شباهت بالا (آستانه > 0.8)**: {prop_high_sim:.4f}")
             except Exception as e:
-                st.error(f"An error occurred: {str(e)}")
+                st.error(f"خطایی رخ داده است: {str(e)}")
 
 if __name__ == "__main__":
     main()
